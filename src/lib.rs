@@ -1,14 +1,25 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+pub mod ll {
+    pub mod fuse_abi;
 }
+mod mount;
+mod transport;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use std::io;
+use std::path::Path;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+pub use mount::MountOption;
+
+pub trait FileSystem {}
+
+pub fn mount<F, P>(_fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>
+where
+    F: FileSystem + Send + 'static,
+    P: AsRef<Path>,
+{
+    let session = mount::Session::new(mountpoint.as_ref(), options)?;
+
+    // Start the io_uring loop (ignoring `fs` (for now only))
+    transport::run_uring_loop(session.fd)?;
+
+    Ok(())
 }

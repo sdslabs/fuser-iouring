@@ -6,3 +6,7 @@ edition = "2024"
 [dependencies]
 clap = "4.5.53"
 libc = "0.2.178"
+log = "0.4"
+io-uring = "0.6"
+nix = "0.27"
+zerocopy = { version = "0.7", features = ["derive"] }
