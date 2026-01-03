@@ -110,7 +110,6 @@ fn receive_fd(socket: RawFd) -> io::Result<RawFd> {
         if unsafe {
             (*cmsg).cmsg_level == libc::SOL_SOCKET && (*cmsg).cmsg_type == libc::SCM_RIGHTS
         } {
-
             let data_ptr = unsafe { libc::CMSG_DATA(cmsg) };
             let mut fd: c_int = 0;
 
@@ -127,7 +126,5 @@ fn receive_fd(socket: RawFd) -> io::Result<RawFd> {
         cmsg = unsafe { libc::CMSG_NXTHDR(&msg, cmsg) };
     }
 
-    Err(Error::other(
-        "No file descriptor received from fusermount",
-    ))
+    Err(Error::other("No file descriptor received from fusermount"))
 }

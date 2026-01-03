@@ -5,7 +5,7 @@ pub const FUSE_ROOT_ID: u64 = 1;
 // The standard header for every FUSE request -->
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct fuse_in_header {
+pub struct FuseInHeader {
     pub len: u32,
     pub opcode: u32,
     pub unique: u64,
@@ -18,7 +18,7 @@ pub struct fuse_in_header {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct fuse_out_header {
+pub struct FuseOutHeader {
     pub len: u32,
     pub error: i32,
     pub unique: u64,
@@ -26,7 +26,7 @@ pub struct fuse_out_header {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct fuse_init_in {
+pub struct FuseInitIn {
     pub major: u32,
     pub minor: u32,
     pub max_readahead: u32,
@@ -35,7 +35,7 @@ pub struct fuse_init_in {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct fuse_init_out {
+pub struct FuseInitOut {
     pub major: u32,
     pub minor: u32,
     pub max_readahead: u32,

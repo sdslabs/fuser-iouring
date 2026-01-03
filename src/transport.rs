@@ -44,8 +44,8 @@ pub fn run_uring_loop(fuse_fd: RawFd) -> io::Result<()> {
             }
             ring.submit()?;
 
-            if bytes_read >= mem::size_of::<fuse_in_header>() {
-                let header = unsafe { &*(buf.as_ptr() as *const fuse_in_header) };
+            if bytes_read >= mem::size_of::<FuseInHeader>() {
+                let header = unsafe { &*(buf.as_ptr() as *const FuseInHeader) };
 
                 if header.opcode == FUSE_INIT {
                     handle_init(&mut ring, fuse_fd, header, &buf)?;
@@ -62,24 +62,19 @@ pub fn run_uring_loop(fuse_fd: RawFd) -> io::Result<()> {
     Ok(())
 }
 
-fn handle_init(
-    ring: &mut IoUring,
-    fd: RawFd,
-    header: &fuse_in_header,
-    buf: &[u8],
-) -> io::Result<()> {
-    let data_ptr = unsafe { buf.as_ptr().add(mem::size_of::<fuse_in_header>()) };
-    let in_args = unsafe { *(data_ptr as *const fuse_init_in) };
+fn handle_init(ring: &mut IoUring, fd: RawFd, header: &FuseInHeader, buf: &[u8]) -> io::Result<()> {
+    let data_ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+    let in_args = unsafe { *(data_ptr as *const FuseInitIn) };
 
     println!("Received INIT: Kernel v{}.{}", in_args.major, in_args.minor);
 
-    let out_header = fuse_out_header {
-        len: (mem::size_of::<fuse_out_header>() + mem::size_of::<fuse_init_out>()) as u32,
+    let out_header = FuseOutHeader {
+        len: (mem::size_of::<FuseOutHeader>() + mem::size_of::<FuseInitOut>()) as u32,
         error: 0,
         unique: header.unique,
     };
 
-    let out_args = fuse_init_out {
+    let out_args = FuseInitOut {
         major: 7,
         minor: 31,
         max_readahead: in_args.max_readahead,
@@ -95,13 +90,13 @@ fn handle_init(
     let header_bytes = unsafe {
         slice::from_raw_parts(
             &out_header as *const _ as *const u8,
-            mem::size_of::<fuse_out_header>(),
+            mem::size_of::<FuseOutHeader>(),
         )
     };
     let args_bytes = unsafe {
         slice::from_raw_parts(
             &out_args as *const _ as *const u8,
-            mem::size_of::<fuse_init_out>(),
+            mem::size_of::<FuseInitOut>(),
         )
     };
 
@@ -125,8 +120,8 @@ fn handle_init(
 }
 
 fn reply_error(ring: &mut IoUring, fd: RawFd, unique: u64, error_code: i32) -> io::Result<()> {
-    let header = fuse_out_header {
-        len: mem::size_of::<fuse_out_header>() as u32,
+    let header = FuseOutHeader {
+        len: mem::size_of::<FuseOutHeader>() as u32,
         error: -error_code, // e.g. -38 for ENOSYS
         unique,
     };
@@ -134,7 +129,7 @@ fn reply_error(ring: &mut IoUring, fd: RawFd, unique: u64, error_code: i32) -> i
     let buf = unsafe {
         slice::from_raw_parts(
             &header as *const _ as *const u8,
-            mem::size_of::<fuse_out_header>(),
+            mem::size_of::<FuseOutHeader>(),
         )
     };
 

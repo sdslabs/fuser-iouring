@@ -1,5 +1,5 @@
-use std::env;
 use fuser_iouring::{FileSystem, MountOption};
+use std::env;
 
 struct NullFS;
 
@@ -13,13 +13,11 @@ fn main() {
     }
     let mountpoint = &args[1];
 
-    let options = vec![
-        MountOption::AutoUnmount
-    ];
+    let options = vec![MountOption::AutoUnmount];
 
     println!("Mounting NullFS on {}", mountpoint);
 
-    match fuser_iouring::mount(NullFS ,mountpoint, &options) {
+    match fuser_iouring::mount(NullFS, mountpoint, &options) {
         Ok(_) => println!("Mount mounted successfully"),
         Err(e) => println!("Error in initialising FUSE session: {}", e),
     }
