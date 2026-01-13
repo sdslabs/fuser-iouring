@@ -6,12 +6,28 @@ mod transport;
 
 use std::io;
 use std::path::Path;
+use crate::ll::fuse_abi::*;
 
 pub use mount::MountOption;
 
-pub trait FileSystem {}
+pub trait FileSystem {
+    fn init(&self, _req: &FuseInitIn) -> Result<FuseInitOut, i32> {
+        Ok(FuseInitOut{
+            major: 7 , minor: 32, max_readahead: 0, flags: 0, max_background: 0, congestion_threshold: 0,
+            max_write: 1024*1024, time_gran: 1, padding: [0; 9]
+        })
+    }
 
-pub fn mount<F, P>(_fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>
+    fn lookup(&self , parent: u64 , name: &[u8]) -> Result<FuseEntryOut, i32> { Err(libc::ENOSYS) }
+    fn getattr(&self, ino: u64) -> Result<FuseAttrOut, i32> { Err(libc::ENOSYS) }
+    fn mkdir(&self, parent: u64, name: &[u8], mode: u32) -> Result<FuseEntryOut, i32> { Err(libc::ENOSYS) }
+    fn create(&self, parent:u64, name: &[u8], mode: u32 ) -> Result<(FuseEntryOut, FuseOpenOut), i32> { Err(libc::ENOSYS) }
+    fn write(&self, ino:u64, offset: u64, data: &[u8]) -> Result<u32, i32> { Err(libc::ENOSYS) }
+    fn read(&self, ino:u64, offset: u64, size: u32) -> Result<Vec<u8>, i32> { Err(libc::ENOSYS) }
+    fn readdir(&self, ino:u64, offset: u64) -> Result<Vec<u8>, i32> { Err(libc::ENOSYS) }
+}
+
+pub fn mount<F, P>(fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>
 where
     F: FileSystem + Send + 'static,
     P: AsRef<Path>,
@@ -19,7 +35,7 @@ where
     let session = mount::Session::new(mountpoint.as_ref(), options)?;
 
     // Start the io_uring loop (ignoring `fs` (for now only))
-    transport::run_uring_loop(session.fd)?;
+    transport::run_uring_loop(session.fd , fs)?;
 
     Ok(())
 }
