@@ -29,8 +29,47 @@ pub const FUSE_INIT: u32 = 26;
 pub const FUSE_OPENDIR: u32 = 27;
 pub const FUSE_READDIR: u32 = 28;
 pub const FUSE_RELEASEDIR: u32 = 29;
-pub const FUSE_CREATE: u32 = 30;
+pub const FUSE_ACCESS: u32 = 34;
+pub const FUSE_CREATE: u32 = 35;
+pub const FUSE_READDIRPLUS: u32 = 52;
 
+
+// Capability Flags
+pub const FUSE_ASYNC_READ: u32 = 1 << 0;
+pub const FUSE_POSIX_LOCKS: u32 = 1 << 1;
+pub const FUSE_FILE_OPS: u32 = 1 << 2;
+pub const FUSE_ATOMIC_O_TRUNC: u32 = 1 << 3;
+pub const FUSE_EXPORT_SUPPORT: u32 = 1 << 4;
+pub const FUSE_BIG_WRITES: u32 = 1 << 5;
+pub const FUSE_DONT_MASK: u32 = 1 << 6;
+pub const FUSE_SPLICE_WRITE: u32 = 1 << 7;
+pub const FUSE_SPLICE_MOVE: u32 = 1 << 8;
+pub const FUSE_SPLICE_READ: u32 = 1 << 9;
+pub const FUSE_FLOCK_LOCKS: u32 = 1 << 10;
+pub const FUSE_HAS_IOCTL_DIR: u32 = 1 << 11;
+pub const FUSE_AUTO_INVAL_DATA: u32 = 1 << 12;
+pub const FUSE_DO_READDIRPLUS: u32 = 1 << 13;
+pub const FUSE_READDIRPLUS_AUTO: u32 = 1 << 14;
+pub const FUSE_ASYNC_DIO: u32 = 1 << 15;
+pub const FUSE_WRITEBACK_CACHE: u32 = 1 << 16;
+pub const FUSE_NO_OPEN_SUPPORT: u32 = 1 << 17;
+pub const FUSE_PARALLEL_DIROPS: u32 = 1 << 18;
+pub const FUSE_HANDLE_KILLPRIV: u32 = 1 << 19;
+pub const FUSE_POSIX_ACL: u32 = 1 << 20;
+pub const FUSE_ABORT_ERROR: u32 = 1 << 21;
+pub const FUSE_MAX_PAGES: u32 = 1 << 22;
+pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23;
+pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24;
+pub const FUSE_EXPLICIT_INVAL_DATA: u32 = 1 << 25;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct FuseDirent {
+    pub ino: u64,
+    pub off: u64,
+    pub namelen: u32,
+    pub typ: u32,
+}
 
 // The standard header for every FUSE request -->
 #[repr(C)]
@@ -118,9 +157,9 @@ pub struct FuseSetAttrIn {
     pub atime: u64,
     pub mtime: u64,
     pub ctime: u64,
-    pub atimensec: u64,
-    pub mtimensec: u64,
-    pub ctimensec: u64,
+    pub atimensec: u32,
+    pub mtimensec: u32,
+    pub ctimensec: u32,
     pub mode: u32,
     pub uid: u32,
     pub gid: u32,
