@@ -14,7 +14,7 @@ pub trait FileSystem {
     fn init(&self, req: &FuseInitIn) -> Result<FuseInitOut, i32> {
         let flags = req.flags & (FUSE_BIG_WRITES | FUSE_ASYNC_READ);
         Ok(FuseInitOut{
-            major: 7 , minor: 32, max_readahead: req.max_readahead, flags: flags, max_background: 0, congestion_threshold: 0,
+            major: 7 , minor: 18, max_readahead: req.max_readahead, flags: flags, max_background: 0, congestion_threshold: 0,
             max_write: 1024*1024, time_gran: 1, padding: [0; 9]
         })
     }

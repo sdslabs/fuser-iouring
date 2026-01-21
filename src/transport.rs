@@ -42,16 +42,17 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
             let bytes_read = cqe.result() as usize;
             if bytes_read >= mem::size_of::<FuseInHeader>() {
                 let header = unsafe { &*(buf.as_ptr() as *const FuseInHeader) };
-                println!("Header: {:?}", header);
+                // For now , letting it here for debugging purpose
+                // println!("Header: {:?}", header);
 
                 let res = match header.opcode {
                     FUSE_INIT => {
-                        println!("test init");
+                        // println!("test init");
                         let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseInitIn) };
                         match fs.init(&arg) {
                             Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_LOOKUP => {
@@ -59,32 +60,32 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         let name = unsafe { CStr::from_ptr(ptr as *const i8) };
                         match fs.lookup(header.nodeid , name.to_bytes()) {
                             Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_GETATTR => {
                         match fs.getattr(header.nodeid ) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_ACCESS => {
                         match fs.access(header.nodeid , 0) {
                             Ok(_) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_OPEN => {
                         match fs.open(header.nodeid, 0) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_OPENDIR => {
-                        println!("opendir match cased");
+                        // println!("opendir match cased");
                         match fs.opendir(header.nodeid, 0) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_MKDIR => {
@@ -95,7 +96,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
 
                         match fs.mkdir(header.nodeid , name.to_bytes(), arg.mode) {
                             Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_CREATE => {
@@ -109,7 +110,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                                 let out = FuseCreateOut {entry , open};
                                 reply_ok(&mut ring, fuse_fd, header.unique, &out)
                             },
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_WRITE => {
@@ -123,7 +124,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                                 let out = FuseWriteOut { size: written, padding: 0 };
                                 reply_ok(&mut ring, fuse_fd, header.unique, &out)
                             }
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_READ => {
@@ -131,7 +132,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
                         match fs.read(header.nodeid, arg.offset, arg.size) {
                             Ok(data) => reply_data(&mut ring, fuse_fd, header.unique, &data),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_READDIR => {
@@ -141,7 +142,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
 
                         match fs.readdir(header.nodeid , arg.offset) {
                             Ok(data) => reply_data(&mut ring, fuse_fd, header.unique, &data),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, -e),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_READDIRPLUS => {

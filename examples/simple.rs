@@ -121,7 +121,15 @@ impl SimpleFS {
 
     fn get_directory_content(&self, ino: u64) -> Result<BTreeMap<Vec<u8> , (u64, FileKind)> , i32> {
         match File::open(self.content_path(ino)) {
-            Ok(f) => Ok(bincode::deserialize_from(f).unwrap()),
+            Ok(f) => {
+                match bincode::deserialize_from(f) {
+                    Ok(map) => Ok(map),
+                    Err(e) => {
+                        eprintln!("CRITICAL: Corrupt directory content for inode {} : {}" , ino, e);
+                        Err(libc::EIO)
+                    }
+                }
+            }
             Err(_) => Err(libc::ENOENT),
         }
     }
@@ -381,7 +389,7 @@ fn main() {
         return;
     }
     let mountpoint = &args[1];
-    let data_dir = "/tmp/fuser_data_stable3";
+    let data_dir = "/tmp/fuser_data_test1";
 
     println!("mountpoint SimpleFS on {} (Data : {})", mountpoint, data_dir);
 
