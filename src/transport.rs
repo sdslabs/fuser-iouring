@@ -136,7 +136,6 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_READDIR => {
-                        println!("read request");
                         let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
 
@@ -147,6 +146,28 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                     },
                     FUSE_READDIRPLUS => {
                         reply_error(&mut ring , fuse_fd , header.unique, libc::ENOSYS)
+                    },
+                    FUSE_UNLINK => {
+                        let ptr = unsafe{ buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
+                        match fs.unlink(header.nodeid, name.to_bytes()) {
+                            Ok(()) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
+                    FUSE_RMDIR => {
+                        let ptr = unsafe{ buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
+                        match fs.rmdir(header.nodeid, name.to_bytes()) {
+                            Ok(()) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
+                    FUSE_SETATTR => {
+                       match fs.getattr(header.nodeid) {
+                           Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
+                           Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                       }
                     },
                     _ => reply_error(&mut ring, fuse_fd, header.unique, libc::ENOSYS),
                 };

@@ -37,6 +37,8 @@ pub trait FileSystem {
     fn readdirplus(&self, ino: u64, offset: u64) -> Result<Vec<u8> , i32> {
         Err(libc::ENOSYS)
     }
+    fn unlink(&self, parent: u64, name: &[u8]) -> Result<(), i32> { Err(libc::ENOSYS) }
+    fn rmdir(&self, parent: u64, name: &[u8]) -> Result<(), i32> { Err(libc::ENOSYS) }
 }
 
 pub fn mount<F, P>(fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>

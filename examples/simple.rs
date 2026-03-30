@@ -148,8 +148,8 @@ impl FileSystem for SimpleFS {
             Ok(FuseEntryOut{
                 nodeid : attr.inode,
                 generation : 1,
-                entry_valid: 1,
-                attr_valid : 1,
+                entry_valid: 0,
+                attr_valid : 0,
                 entry_valid_nsec: 0,
                 attr_valid_nsec: 0,
                 attr: attr.to_fuse_attr(),
@@ -162,7 +162,7 @@ impl FileSystem for SimpleFS {
     fn getattr(&self, ino: u64) -> Result<FuseAttrOut, i32> {
         let attr = self.get_inode(ino)?;
         Ok(FuseAttrOut {
-            attr_valid: 1,
+            attr_valid: 0,
             attr_valid_nsec: 0,
             dummy: 0,
             attr: attr.to_fuse_attr(),
@@ -206,8 +206,8 @@ impl FileSystem for SimpleFS {
         Ok(FuseEntryOut {
             nodeid: ino,
             generation: 1,
-            entry_valid: 1,
-            attr_valid: 1,
+            entry_valid: 0,
+            attr_valid: 0,
             entry_valid_nsec: 0,
             attr_valid_nsec: 0,
             attr: new_attr.to_fuse_attr(),
@@ -247,8 +247,8 @@ impl FileSystem for SimpleFS {
             FuseEntryOut{
                 nodeid : ino,
                 generation: 1,
-                entry_valid : 1,
-                attr_valid : 1,
+                entry_valid : 0,
+                attr_valid : 0,
                 entry_valid_nsec : 0,
                 attr_valid_nsec : 0,
                 attr: new_attr.to_fuse_attr(),
@@ -341,8 +341,8 @@ impl FileSystem for SimpleFS {
             let entry_out = FuseEntryOut {
                 nodeid: attr.inode,
                 generation: 1,
-                entry_valid: 1,
-                attr_valid: 1,
+                entry_valid: 0,
+                attr_valid: 0,
                 entry_valid_nsec: 0,
                 attr_valid_nsec: 0,
                 attr: attr.to_fuse_attr(),
@@ -375,6 +375,59 @@ impl FileSystem for SimpleFS {
         }
         Ok(reply_buf)
     }
+
+    fn unlink(&self, parent: u64, name: &[u8]) -> Result<(), i32> {
+        let mut parent_map = self.get_directory_content(parent)?;
+
+        if let Some(&(child_ino, kind)) = parent_map.get(name) {
+            if kind == FileKind::Directory {
+                return Err(libc::EISDIR);
+            }
+
+            parent_map.remove(name);
+            self.write_directory_content(parent, &parent_map);
+
+            let _ = fs::remove_file(self.inode_path(child_ino));
+            let _ = fs::remove_dir_all(self.content_path(child_ino));
+
+            let mut parent_attr = self.get_inode(parent)?;
+            parent_attr.mtime = time_now();
+            self.write_inode(&parent_attr);
+
+            Ok(())
+        } else {
+            Err(libc::ENOENT)
+        }
+    }
+
+    fn rmdir(&self, parent: u64, name: &[u8]) -> Result<(), i32> {
+        let mut parent_map = self.get_directory_content(parent)?;
+
+        if let Some(&(child_ino, kind)) = parent_map.get(name) {
+            if kind != FileKind::Directory {
+                return Err(libc::ENOTDIR);
+            }
+
+            let child_map = self.get_directory_content(child_ino)?;
+            if child_map.len() > 2 {
+                return Err(libc::ENOTEMPTY);
+            }
+
+            parent_map.remove(name);
+            self.write_directory_content(child_ino, &parent_map);
+
+            let _ = fs::remove_file(self.inode_path(child_ino));
+            let _ = fs::remove_file(self.content_path(child_ino));
+
+            if let Ok(mut parent_attr) = self.get_inode(parent) {
+                parent_attr.mtime = time_now();
+                self.write_inode(&parent_attr);
+            }
+            Ok(())
+        } else {
+            Err(libc::ENOENT)
+        }
+    }
 }
 
 fn time_now() -> (i64, u32) {
@@ -385,17 +438,22 @@ fn time_now() -> (i64, u32) {
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        println!("Usage: cargo run --example simple <mountpoint>");
+        println!("Usage: cargo run --example simple <mountpoint> [data_dir]");
         return;
     }
     let mountpoint = &args[1];
-    let data_dir = "/tmp/fuser_data_test1";
+    let data_dir_string = if args.len() > 2 {
+        args[2].clone()
+    } else {
+        "/tmp/fuser_data_test1".to_string()
+    };
 
-    println!("mountpoint SimpleFS on {} (Data : {})", mountpoint, data_dir);
+    let data_dir = data_dir_string.as_str();
+    println!("mountpoint SimpleFS on {} (Data: {})", mountpoint, data_dir);
 
     let fs = SimpleFS::new(data_dir);
 
     if let Err(e) = fuser_iouring::mount(fs, mountpoint, &[MountOption::AutoUnmount]) {
-        eprintln!("Error : {}", e);
+        eprintln!("Error: {}", e);
     }
 }
