@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 use fuser_iouring::ll::fuse_abi::*;
-use fuser_iouring::{FileSystem , MountOption};
+use fuser_iouring::{FileSystem, MountOption, Request};
 
 const BLOCK_SIZE: u32 = 512;
 
@@ -70,7 +70,7 @@ impl SimpleFS {
             let now = time_now();
             let root = InodeAttributes {
                 inode : 1,
-                size : 0,
+                size : 2,
                 kind : FileKind::Directory,
                 mode : 0o40755,
                 hardlinks : 2,
@@ -141,7 +141,7 @@ impl SimpleFS {
 }
 
 impl FileSystem for SimpleFS {
-    fn lookup(&self, parent: u64, name: &[u8]) -> Result<FuseEntryOut , i32> {
+    fn lookup(&self, _req: &Request, parent: u64, name: &[u8]) -> Result<FuseEntryOut , i32> {
         let dir = self.get_directory_content(parent)?;
         if let Some((ino, _)) = dir.get(name) {
             let attr = self.get_inode(*ino)?;
@@ -159,7 +159,7 @@ impl FileSystem for SimpleFS {
         }
     }
 
-    fn getattr(&self, ino: u64) -> Result<FuseAttrOut, i32> {
+    fn getattr(&self, _req: &Request, ino: u64) -> Result<FuseAttrOut, i32> {
         let attr = self.get_inode(ino)?;
         Ok(FuseAttrOut {
             attr_valid: 0,
@@ -169,7 +169,43 @@ impl FileSystem for SimpleFS {
         })
     }
 
-    fn mkdir(&self, parent: u64, name: &[u8], mode: u32) -> Result<FuseEntryOut, i32> {
+    fn setattr(&self, _req: &Request, ino: u64, arg: &FuseSetAttrIn) -> Result<FuseAttrOut, i32> {
+        let mut attr = self.get_inode(ino)?;
+
+        if arg.valid & FATTR_MODE != 0 {
+            attr.mode = (attr.mode & !0o7777) | (arg.mode as u16 & 0o7777);
+        }
+        if arg.valid & FATTR_UID != 0 {
+            attr.uid = arg.uid;
+        }
+        if arg.valid & FATTR_GID != 0 {
+            attr.gid = arg.gid;
+        }
+        if arg.valid & FATTR_SIZE != 0 {
+            attr.size = arg.size;
+            // Truncate the actual backing file
+            if let Ok(f) = OpenOptions::new().write(true).open(self.content_path(ino)) {
+                let _ = f.set_len(arg.size);
+            }
+        }
+        if arg.valid & FATTR_ATIME != 0 {
+            attr.atime = (arg.atime as i64, arg.atimensec);
+        }
+        if arg.valid & FATTR_MTIME != 0 {
+            attr.mtime = (arg.mtime as i64, arg.mtimensec);
+        }
+
+        self.write_inode(&attr);
+
+        Ok(FuseAttrOut {
+            attr_valid: 0,
+            attr_valid_nsec: 0,
+            dummy: 0,
+            attr: attr.to_fuse_attr(),
+        })
+    }
+
+    fn mkdir(&self, _req: &Request, parent: u64, name: &[u8], mode: u32) -> Result<FuseEntryOut, i32> {
         let mut parent_attr = self.get_inode(parent)?;
         if parent_attr.kind != FileKind::Directory { return Err(libc::ENOTDIR); }
 
@@ -178,7 +214,7 @@ impl FileSystem for SimpleFS {
 
         let new_attr = InodeAttributes {
             inode: ino,
-            size : 0,
+            size : 2,
             kind : FileKind::Directory,
             mode : (mode & 0o777) as u16 | 0o40000,
             hardlinks : 2,
@@ -201,6 +237,7 @@ impl FileSystem for SimpleFS {
         self.write_directory_content(parent, &parent_map);
 
         parent_attr.mtime = now;
+        parent_attr.size = parent_map.len() as u64;
         self.write_inode(&parent_attr);
 
         Ok(FuseEntryOut {
@@ -214,7 +251,7 @@ impl FileSystem for SimpleFS {
         })
     }
 
-    fn create(&self, parent: u64, name: &[u8], mode: u32) -> Result<(FuseEntryOut, FuseOpenOut), i32> {
+    fn create(&self, _req: &Request, parent: u64, name: &[u8], mode: u32) -> Result<(FuseEntryOut, FuseOpenOut), i32> {
         let mut parent_attr = self.get_inode(parent)?;
         let ino = self.allocate_next_inode();
         let now = time_now();
@@ -241,6 +278,7 @@ impl FileSystem for SimpleFS {
         self.write_directory_content(parent, &parent_map);
 
         parent_attr.mtime = now;
+        parent_attr.size = parent_map.len() as u64;
         self.write_inode(&parent_attr);
 
         Ok((
@@ -261,7 +299,7 @@ impl FileSystem for SimpleFS {
             ))
     }
 
-    fn write(&self, ino:u64 , offset:u64, data: &[u8]) -> Result<u32 , i32> {
+    fn write(&self, _req: &Request, ino: u64 , offset: u64, data: &[u8]) -> Result<u32 , i32> {
         let mut attr = self.get_inode(ino)?;
         if attr.kind != FileKind::File { return Err(libc::EISDIR); }
 
@@ -278,7 +316,7 @@ impl FileSystem for SimpleFS {
         Ok(data.len() as u32)
     }
 
-    fn read(&self, ino:u64 , offset:u64, size: u32) -> Result<Vec<u8> , i32> {
+    fn read(&self, _req: &Request, ino: u64 , offset: u64, size: u32) -> Result<Vec<u8> , i32> {
         let attr = self.get_inode(ino)?;
         let mut f = File::open(self.content_path(ino)).map_err(|_| libc::ENOENT)?;
 
@@ -291,7 +329,7 @@ impl FileSystem for SimpleFS {
         Ok(buf)
     }
 
-    fn readdir(&self, ino:u64, offset: u64) -> Result<Vec<u8> , i32> {
+    fn readdir(&self, _req: &Request, ino: u64, offset: u64) -> Result<Vec<u8> , i32> {
         let entries = self.get_directory_content(ino)?;
         let mut reply_buf = Vec::new();
 
@@ -322,7 +360,7 @@ impl FileSystem for SimpleFS {
         Ok(reply_buf)
     }
 
-    fn readdirplus(&self, ino: u64 , offset: u64) -> Result<Vec<u8> , i32> {
+    fn readdirplus(&self, _req: &Request, ino: u64 , offset: u64) -> Result<Vec<u8> , i32> {
         let entries = self.get_directory_content(ino)?;
         let mut reply_buf = Vec::new();
 
@@ -370,13 +408,12 @@ impl FileSystem for SimpleFS {
             reply_buf.extend_from_slice(unsafe { std::slice::from_raw_parts(p_dirent, dirent_len) });
 
             reply_buf.extend_from_slice(name);
-
             reply_buf.extend(std::iter::repeat(0).take(padding));
         }
         Ok(reply_buf)
     }
 
-    fn unlink(&self, parent: u64, name: &[u8]) -> Result<(), i32> {
+    fn unlink(&self, _req: &Request, parent: u64, name: &[u8]) -> Result<(), i32> {
         let mut parent_map = self.get_directory_content(parent)?;
 
         if let Some(&(child_ino, kind)) = parent_map.get(name) {
@@ -390,9 +427,11 @@ impl FileSystem for SimpleFS {
             let _ = fs::remove_file(self.inode_path(child_ino));
             let _ = fs::remove_dir_all(self.content_path(child_ino));
 
-            let mut parent_attr = self.get_inode(parent)?;
-            parent_attr.mtime = time_now();
-            self.write_inode(&parent_attr);
+            if let Ok(mut parent_attr) = self.get_inode(parent) {
+                parent_attr.mtime = time_now();
+                parent_attr.size = parent_map.len() as u64;
+                self.write_inode(&parent_attr);
+            }
 
             Ok(())
         } else {
@@ -400,7 +439,7 @@ impl FileSystem for SimpleFS {
         }
     }
 
-    fn rmdir(&self, parent: u64, name: &[u8]) -> Result<(), i32> {
+    fn rmdir(&self, _req: &Request, parent: u64, name: &[u8]) -> Result<(), i32> {
         let mut parent_map = self.get_directory_content(parent)?;
 
         if let Some(&(child_ino, kind)) = parent_map.get(name) {
@@ -414,19 +453,62 @@ impl FileSystem for SimpleFS {
             }
 
             parent_map.remove(name);
-            self.write_directory_content(child_ino, &parent_map);
+            self.write_directory_content(parent, &parent_map);
 
             let _ = fs::remove_file(self.inode_path(child_ino));
             let _ = fs::remove_file(self.content_path(child_ino));
 
             if let Ok(mut parent_attr) = self.get_inode(parent) {
                 parent_attr.mtime = time_now();
+                parent_attr.size = parent_map.len() as u64;
                 self.write_inode(&parent_attr);
             }
             Ok(())
         } else {
             Err(libc::ENOENT)
         }
+    }
+
+    fn rename(&self, _req: &Request, parent: u64, name: &[u8], newparent: u64, newname: &[u8]) -> Result<(), i32> {
+        let mut parent_map = self.get_directory_content(parent)?;
+        
+        // Grab the file we are moving
+        let (child_ino, kind) = match parent_map.get(name) {
+            Some(&val) => val,
+            None => return Err(libc::ENOENT),
+        };
+
+        // If we are renaming within the same directory
+        if parent == newparent {
+            parent_map.remove(name);
+            parent_map.insert(newname.to_vec(), (child_ino, kind));
+            self.write_directory_content(parent, &parent_map);
+            
+            if let Ok(mut p_attr) = self.get_inode(parent) {
+                p_attr.mtime = time_now();
+                p_attr.size = parent_map.len() as u64;
+                self.write_inode(&p_attr);
+            }
+        } else {
+            // We are moving the file to a different directory
+            parent_map.remove(name);
+            self.write_directory_content(parent, &parent_map);
+            if let Ok(mut p_attr) = self.get_inode(parent) {
+                p_attr.mtime = time_now();
+                p_attr.size = parent_map.len() as u64;
+                self.write_inode(&p_attr);
+            }
+
+            let mut newparent_map = self.get_directory_content(newparent)?;
+            newparent_map.insert(newname.to_vec(), (child_ino, kind));
+            self.write_directory_content(newparent, &newparent_map);
+            if let Ok(mut np_attr) = self.get_inode(newparent) {
+                np_attr.mtime = time_now();
+                np_attr.size = newparent_map.len() as u64;
+                self.write_inode(&np_attr);
+            }
+        }
+        Ok(())
     }
 }
 

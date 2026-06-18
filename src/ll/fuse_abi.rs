@@ -62,6 +62,15 @@ pub const FUSE_CACHE_SYMLINKS: u32 = 1 << 23;
 pub const FUSE_NO_OPENDIR_SUPPORT: u32 = 1 << 24;
 pub const FUSE_EXPLICIT_INVAL_DATA: u32 = 1 << 25;
 
+// Setattr Flags (Indicates which fields are updated)
+pub const FATTR_MODE: u32 = 1 << 0;
+pub const FATTR_UID: u32 = 1 << 1;
+pub const FATTR_GID: u32 = 1 << 2;
+pub const FATTR_SIZE: u32 = 1 << 3;
+pub const FATTR_ATIME: u32 = 1 << 4;
+pub const FATTR_MTIME: u32 = 1 << 5;
+pub const FATTR_FH: u32 = 1 << 6;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct FuseDirent {
@@ -164,6 +173,12 @@ pub struct FuseSetAttrIn {
     pub uid: u32,
     pub gid: u32,
     pub unused5: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseRenameIn {
+    pub newdir: u64,
 }
 
 #[repr(C)]
