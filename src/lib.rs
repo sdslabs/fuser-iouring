@@ -48,6 +48,11 @@ pub trait FileSystem {
     fn unlink(&self, _req: &Request, _parent: u64, _name: &[u8]) -> Result<(), i32> { Err(libc::ENOSYS) }
     fn rmdir(&self, _req: &Request, _parent: u64, _name: &[u8]) -> Result<(), i32> { Err(libc::ENOSYS) }
     fn rename(&self, _req: &Request, _parent: u64, _name: &[u8], _newparent: u64, _newname: &[u8]) -> Result<(), i32> { Err(libc::ENOSYS) }
+
+    fn symlink(&self, _req: &Request, _parent: u64, _name: &[u8], _target: &[u8]) -> Result<FuseEntryOut, i32> {Err(libc::ENOSYS) }
+    fn readlink(&self, _req: &Request, _ino: u64) -> Result<Vec<u8>, i32> {Err(libc::ENOSYS) }
+    fn link(&self, _req: &Request, _ino: u64, _newparent: u64, _newname: &[u8]) -> Result<FuseEntryOut, i32> {Err(libc::ENOSYS) }
+
 }
 
 pub fn mount<F, P>(fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>

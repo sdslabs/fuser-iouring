@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::iter::Fuse;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
@@ -509,6 +508,88 @@ impl FileSystem for SimpleFS {
             }
         }
         Ok(())
+    }
+
+    fn symlink(&self, _req: &Request, parent: u64, name: &[u8], target: &[u8]) -> Result<FuseEntryOut, i32> {
+        let mut parent_attr = self.get_inode(parent)?;
+        let ino = self.allocate_next_inode();
+        let now = time_now();
+
+        let new_attr = InodeAttributes {
+            inode: ino,
+            size: target.len() as u64,
+            kind: FileKind::Symlink,
+            mode: 0o120777, // Symlink permissions
+            hardlinks: 1,
+            uid: 1000,
+            gid: 1000,
+            atime: now,
+            mtime: now,
+            ctime: now,
+        };
+        self.write_inode(&new_attr);
+
+        // Write the target path bytes into the content backing file
+        let mut f = File::create(self.content_path(ino)).map_err(|_| libc::EIO)?;
+        f.write_all(target).map_err(|_| libc::EIO)?;
+
+        let mut parent_map = self.get_directory_content(parent)?;
+        if parent_map.contains_key(name) { return Err(libc::EEXIST); }
+        parent_map.insert(name.to_vec(), (ino, FileKind::Symlink));
+        self.write_directory_content(parent, &parent_map);
+
+        parent_attr.mtime = now;
+        parent_attr.size = parent_map.len() as u64;
+        self.write_inode(&parent_attr);
+
+        Ok(FuseEntryOut {
+            nodeid: ino,
+            generation: 1,
+            entry_valid: 0,
+            attr_valid: 0,
+            entry_valid_nsec: 0,
+            attr_valid_nsec: 0,
+            attr: new_attr.to_fuse_attr(),
+        })
+    }
+
+    fn readlink(&self, _req: &Request, ino: u64) -> Result<Vec<u8>, i32> {
+        let attr = self.get_inode(ino)?;
+        if attr.kind != FileKind::Symlink {
+            return Err(libc::EINVAL);
+        }
+        let mut f = File::open(self.content_path(ino)).map_err(|_| libc::ENOENT)?;
+        let mut target = Vec::new();
+        f.read_to_end(&mut target).map_err(|_| libc::EIO)?;
+        Ok(target)
+    }
+
+    fn link(&self, _req: &Request, oldnodeid: u64, newparent: u64, newname: &[u8]) -> Result<FuseEntryOut, i32> {
+        let mut old_attr = self.get_inode(oldnodeid)?;
+        if old_attr.kind == FileKind::Directory {
+            return Err(libc::EPERM); // Hardlinking directories is restricted (got to know today :))
+        }
+
+        let mut newparent_map = self.get_directory_content(newparent)?;
+        if newparent_map.contains_key(newname) {
+            return Err(libc::EEXIST);
+        }
+
+        old_attr.hardlinks += 1;
+        self.write_inode(&old_attr);
+
+        newparent_map.insert(newname.to_vec(), (oldnodeid, old_attr.kind));
+        self.write_directory_content(newparent, &newparent_map);
+
+        Ok(FuseEntryOut {
+            nodeid: oldnodeid,
+            generation: 1,
+            entry_valid: 0,
+            attr_valid: 0,
+            entry_valid_nsec: 0,
+            attr_valid_nsec: 0,
+            attr: old_attr.to_fuse_attr(),
+        })
     }
 }
 

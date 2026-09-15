@@ -185,6 +185,32 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
+                    FUSE_SYMLINK => {
+                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>())};
+                        let name = unsafe { CStr::from_ptr(ptr as *const i8) };
+                        let target_ptr = unsafe { ptr.add(name.to_bytes_with_nul().len())};
+                        let target = unsafe { CStr::from_ptr(target_ptr as *const i8) };
+                        match fs.symlink(&req, header.nodeid, name.to_bytes(), target.to_bytes()) {
+                            Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
+                    FUSE_READLINK => {
+                        match fs.readlink(&req, header.nodeid) {
+                            Ok(target) => reply_data(&mut ring, fuse_fd, header.unique, &target),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
+                    FUSE_LINK => {
+                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let arg = unsafe { *(ptr as *const FuseLinkIn) };
+                        let name_ptr = unsafe { ptr.add(mem::size_of::<FuseLinkIn>()) };
+                        let name = unsafe { CStr::from_ptr(name_ptr as *const i8) };
+                        match fs.link(&req, arg.oldnodeid, header.nodeid, name.to_bytes()) {
+                            Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
                     _ => reply_error(&mut ring, fuse_fd, header.unique, libc::ENOSYS),
                 };
                 if let Err(e) = res { eprintln!("IO error: {}", e); }
