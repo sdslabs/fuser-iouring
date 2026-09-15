@@ -255,3 +255,8 @@ pub struct FuseEntryOut {
     pub attr: FuseAttr,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseLinkIn {
+    pub oldnodeid: u64,
+}

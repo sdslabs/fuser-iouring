@@ -27,18 +27,38 @@ sleep 2
 echo "mounting at $DIR"
 mount | grep fuse || exit 1
 
-if touch $DIR/a && \
-   echo "test" > $DIR/a && \
-   chmod 777 $DIR/a && \
-   cat $DIR/a > /dev/null && \
-   mkdir $DIR/b && \
-   mv $DIR/a $DIR/b/renamed_a && \
-   ls $DIR/b > /dev/null && \
-   rm $DIR/b/renamed_a && \
-   rmdir $DIR/b; then
-    echo -e "${GREEN} OK simplefs operations (including setattr & rename) ${NC}"
+#if touch $DIR/a && \
+#   echo "test" > $DIR/a && \
+#   chmod 777 $DIR/a && \
+#   cat $DIR/a > /dev/null && \
+#   mkdir $DIR/b && \
+#   mv $DIR/a $DIR/b/renamed_a && \
+#   ls $DIR/b > /dev/null && \
+#   rm $DIR/b/renamed_a && \
+#   rmdir $DIR/b; then
+#    echo -e "${GREEN} OK simplefs operations (including setattr & rename) ${NC}"
+#else
+#    echo -e "${RED} FAILED simplefs operations ${NC}"
+#    export TEST_EXIT_STATUS=1
+#    exit 1
+#fi
+
+if touch "$DIR/a" && \
+   echo "hello symlink" > "$DIR/a" && \
+   ln -s "$DIR/a" "$DIR/symlink_to_a" && \
+   [ "$(readlink "$DIR/symlink_to_a")" = "$DIR/a" ] && \
+   chmod 777 "$DIR/a" && \
+   cat "$DIR/symlink_to_a" > /dev/null && \
+   mkdir "$DIR/b" && \
+   mv "$DIR/a" "$DIR/b/renamed_a" && \
+   rm "$DIR/symlink_to_a" && \
+   ls "$DIR/b" > /dev/null && \
+   rm "$DIR/b/renamed_a" && \
+   rmdir "$DIR/b"; then
+
+    echo -e "${GREEN}OK simplefs operations (including symlinks, setattr & rename)${NC}"
 else
-    echo -e "${RED} FAILED simplefs operations ${NC}"
+    echo -e "${RED}FAILED simplefs operations${NC}"
     export TEST_EXIT_STATUS=1
     exit 1
 fi
