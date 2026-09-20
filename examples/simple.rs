@@ -591,6 +591,23 @@ impl FileSystem for SimpleFS {
             attr: old_attr.to_fuse_attr(),
         })
     }
+
+    fn statfs(&self, _req: &Request, _ino: u64) -> Result<FuseStatfsOut, i32> {
+        Ok(FuseStatfsOut {
+            st: FuseKStatfs {
+                blocks: 1_000_000,    // Total data blocks (~4GB)
+                bfree: 900_000,       // Free blocks
+                bavail: 900_000,      // Free blocks for non-root users
+                files: 10_000,        // Total available inodes
+                ffree: 9_900,         // Free inodes
+                bsize: 4096,          // Optimal transfer block size
+                namelen: 255,         // Maximum length of filenames
+                frsize: 4096,         // Fragment size
+                padding: 0,
+                spare: [0; 6],
+            }
+        })
+    }
 }
 
 fn time_now() -> (i64, u32) {

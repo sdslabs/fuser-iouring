@@ -53,6 +53,8 @@ pub trait FileSystem {
     fn readlink(&self, _req: &Request, _ino: u64) -> Result<Vec<u8>, i32> {Err(libc::ENOSYS) }
     fn link(&self, _req: &Request, _ino: u64, _newparent: u64, _newname: &[u8]) -> Result<FuseEntryOut, i32> {Err(libc::ENOSYS) }
 
+    fn statfs(&self, _req: &Request, _ino: u64) -> Result<FuseStatfsOut, i32> {Err(libc::ENOSYS) }
+
 }
 
 pub fn mount<F, P>(fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>

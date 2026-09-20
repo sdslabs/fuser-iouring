@@ -260,3 +260,26 @@ pub struct FuseEntryOut {
 pub struct FuseLinkIn {
     pub oldnodeid: u64,
 }
+
+pub const FUSE_STATFS: u32 = 17;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseKStatfs {
+    pub blocks: u64,
+    pub bfree: u64,
+    pub bavail: u64,
+    pub files: u64,
+    pub ffree: u64,
+    pub bsize: u32,
+    pub namelen: u32,
+    pub frsize: u32,
+    pub padding: u32,
+    pub spare: [u32; 6],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseStatfsOut {
+    pub st: FuseKStatfs,
+}

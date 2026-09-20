@@ -211,6 +211,12 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
+                    FUSE_STATFS => {
+                        match fs.statfs(&req, header.nodeid) {
+                            Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
+                    },
                     _ => reply_error(&mut ring, fuse_fd, header.unique, libc::ENOSYS),
                 };
                 if let Err(e) = res { eprintln!("IO error: {}", e); }
