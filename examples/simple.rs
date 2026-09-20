@@ -4,6 +4,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
+use tracing::{info, error};
 
 use fuser_iouring::ll::fuse_abi::*;
 use fuser_iouring::{FileSystem, MountOption, Request};
@@ -608,6 +609,37 @@ impl FileSystem for SimpleFS {
             }
         })
     }
+
+    fn access(&self, req: &Request, ino: u64, mask: u32) -> Result<(), i32> {
+        // Fetch the inode (this also implicitly handles F_OK / existence checks)
+        let attr = self.get_inode(ino)?;
+
+        // If the mask is 0 (F_OK), the kernel is just asking "Does this exist?"
+        if mask == 0 {
+            return Ok(());
+        }
+
+        // The root user bypasses all permission checks
+        if req.uid == 0 {
+            return Ok(());
+        }
+
+        // Determine which octal bits apply to this request
+        let perm_bits = if req.uid == attr.uid {
+            (attr.mode >> 6) & 0o7 // Owner bits
+        } else if req.gid == attr.gid {
+            (attr.mode >> 3) & 0o7 // Group bits
+        } else {
+            attr.mode & 0o7 // Other bits
+        };
+
+        // If the requested mask bits are fully satisfied by the extracted permission bits
+        if (mask & perm_bits as u32) == mask {
+            Ok(())
+        } else {
+            Err(libc::EACCES) // Permission denied
+        }
+    }
 }
 
 fn time_now() -> (i64, u32) {
@@ -616,6 +648,11 @@ fn time_now() -> (i64, u32) {
 }
 
 fn main() {
+    // Initialize the standard formatting subscriber
+    tracing_subscriber::fmt::init();
+
+    info!("Starting SimpleFS...");
+
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
         println!("Usage: cargo run --example simple <mountpoint> [data_dir]");

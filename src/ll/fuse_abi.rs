@@ -283,3 +283,10 @@ pub struct FuseKStatfs {
 pub struct FuseStatfsOut {
     pub st: FuseKStatfs,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseAccessIn {
+    pub mask: u32,
+    pub padding: u32,
+}

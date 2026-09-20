@@ -6,6 +6,7 @@ use std::os::unix::io::RawFd;
 use std::slice;
 use std::ffi::CStr;
 use crate::{FileSystem, Request};
+use tracing::{info, debug, error, warn};
 
 const MAX_WRITE_SIZE: u32 = 1024 * 1024;
 const FUSE_BUFFER_SIZE: usize = (MAX_WRITE_SIZE as usize) + 4096;
@@ -21,7 +22,9 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
 
     unsafe { ring.submission().push(&read_op).expect("submission queue full"); }
     ring.submit()?;
-    println!("Entered io_uring event loop...");
+    // println!("Entered io_uring event loop...");
+
+    info!("Entered io_uring event loop...");
 
     loop {
         ring.submit_and_wait(1)?;
@@ -32,9 +35,11 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                 let res = cqe.result();
                 // -19 (-ENODEV) or 0 means the FUSE connection was unmounted gracefully
                 if res == -libc::ENODEV || res == 0 {
-                    println!("FUSE session terminated (unmounted gracefully).");
+                    // println!("FUSE session terminated (unmounted gracefully).");
+                    info!("FUSE session terminated (unmounted gracefully).");
                 } else {
-                    eprintln!("Read error from FUSE device: {}", res);
+                    // eprintln!("Read error from FUSE device: {}", res);
+                    error!("Read error from FUSE device: {}", res);
                 }
                 break;
             }
@@ -83,7 +88,9 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_ACCESS => {
-                        match fs.access(&req, header.nodeid, 0) {
+                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let arg = unsafe { *(ptr as *const FuseAccessIn) };
+                        match fs.access(&req, header.nodeid, arg.mask) {
                             Ok(_) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
