@@ -4,7 +4,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
-use tracing::{info, error};
+use tracing::info;
 
 use fuser_iouring::ll::fuse_abi::*;
 use fuser_iouring::{FileSystem, MountOption, Request};
@@ -285,8 +285,8 @@ impl FileSystem for SimpleFS {
             FuseEntryOut{
                 nodeid : ino,
                 generation: 1,
-                entry_valid : 0,
-                attr_valid : 0,
+                entry_valid : 1,
+                attr_valid : 1,
                 entry_valid_nsec : 0,
                 attr_valid_nsec : 0,
                 attr: new_attr.to_fuse_attr(),

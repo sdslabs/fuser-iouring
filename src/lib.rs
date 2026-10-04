@@ -20,7 +20,10 @@ pub struct Request {
 
 pub trait FileSystem {
     fn init(&self, _req: &Request, req: &FuseInitIn) -> Result<FuseInitOut, i32> {
-        let flags = req.flags & (FUSE_BIG_WRITES | FUSE_ASYNC_READ);
+        let mut flags = req.flags & (FUSE_BIG_WRITES | FUSE_ASYNC_READ);
+
+        flags |= FUSE_READDIRPLUS;
+
         Ok(FuseInitOut{
             major: 7 , minor: 18, max_readahead: req.max_readahead, flags: flags, max_background: 0, congestion_threshold: 0,
             max_write: 1024*1024, time_gran: 1, padding: [0; 9]

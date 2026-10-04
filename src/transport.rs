@@ -6,7 +6,7 @@ use std::os::unix::io::RawFd;
 use std::slice;
 use std::ffi::CStr;
 use crate::{FileSystem, Request};
-use tracing::{info, debug, error, warn};
+use tracing::{info, error};
 
 const MAX_WRITE_SIZE: u32 = 1024 * 1024;
 const FUSE_BUFFER_SIZE: usize = (MAX_WRITE_SIZE as usize) + 4096;
@@ -160,7 +160,12 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_READDIRPLUS => {
-                        reply_error(&mut ring , fuse_fd , header.unique, libc::ENOSYS)
+                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let arg = unsafe { *(ptr as *const FuseReadIn) };
+                        match fs.readdirplus(&req, header.nodeid, arg.offset) {
+                            Ok(data) => reply_data(&mut ring, fuse_fd, header.unique, &data),
+                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        }
                     },
                     FUSE_UNLINK => {
                         let ptr = unsafe{ buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };

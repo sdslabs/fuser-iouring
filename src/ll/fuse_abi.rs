@@ -290,3 +290,10 @@ pub struct FuseAccessIn {
     pub mask: u32,
     pub padding: u32,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct FuseDirentplus {
+    pub entry_out: FuseEntryOut,
+    pub dirent: FuseDirent,
+}
