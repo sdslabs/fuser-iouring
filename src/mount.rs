@@ -46,6 +46,7 @@ impl Drop for Session {
     }
 }
 
+
 fn fuse_mount_sys(mountpoint: &Path, options: &str) -> io::Result<RawFd> {
     let (sock0, sock1) = socket_pair()?;
 
@@ -54,9 +55,15 @@ fn fuse_mount_sys(mountpoint: &Path, options: &str) -> io::Result<RawFd> {
         return Err(Error::last_os_error());
     }
 
-    let _child = Command::new("fusermount")
-        .arg("-o")
-        .arg(options)
+
+
+    let mut cmd = Command::new("fusermount");
+
+    if !options.is_empty() {
+        cmd.arg("-o").arg(options);
+    }
+
+    let _child = cmd
         .arg("--")
         .arg(mountpoint)
         .env("_FUSE_COMMFD", sock0.to_string())
