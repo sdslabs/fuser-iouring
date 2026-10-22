@@ -11,7 +11,14 @@ use tracing::{info, debug, error, warn};
 const MAX_WRITE_SIZE: u32 = 1024 * 1024;
 const FUSE_BUFFER_SIZE: usize = (MAX_WRITE_SIZE as usize) + 4096;
 
-pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> {
+pub fn run_uring_loop<F>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
+where F: FileSystem + Send + Sync + 'static {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .map_err(io::Error::other)?;
+
     let mut ring = IoUring::new(8)?;
     let mut buf = vec![0u8; FUSE_BUFFER_SIZE];
 
@@ -46,7 +53,13 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
 
             let bytes_read = cqe.result() as usize;
             if bytes_read >= mem::size_of::<FuseInHeader>() {
-                let header = unsafe { &*(buf.as_ptr() as *const FuseInHeader) };
+                let request_bytes = buf[..bytes_read].to_vec();
+                let header = unsafe { 
+                    request_bytes
+                    .as_ptr()
+                    .cast::<FuseInHeader>()
+                    .read_unaligned()
+                };
                 
                 // CREATE THE REQUEST CONTEXT
                     let req = Request {
@@ -58,7 +71,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
 
                 let res = match header.opcode {
                     FUSE_INIT => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseInitIn) };
                         match fs.init(&req, &arg) {
                             Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
@@ -66,7 +79,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_LOOKUP => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe { CStr::from_ptr(ptr as *const i8) };
                         match fs.lookup(&req, header.nodeid, name.to_bytes()) {
                             Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
@@ -80,7 +93,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_SETATTR => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseSetAttrIn) };
                         match fs.setattr(&req, header.nodeid, &arg) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
@@ -88,7 +101,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_ACCESS => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseAccessIn) };
                         match fs.access(&req, header.nodeid, arg.mask) {
                             Ok(_) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
@@ -108,7 +121,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_MKDIR => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseMkdirIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseMkdirIn>()) };
                         let name = unsafe { CStr::from_ptr(name_ptr as *const i8) };
@@ -118,7 +131,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_CREATE => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseCreateIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseCreateIn>()) };
                         let name = unsafe { CStr::from_ptr(name_ptr as *const i8) };
@@ -131,7 +144,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_WRITE => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseWriteIn) };
                         let data_ptr = unsafe { ptr.add(mem::size_of::<FuseWriteIn>()) };
                         let data = unsafe { slice::from_raw_parts(data_ptr , arg.size as usize) };
@@ -144,7 +157,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_READ => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
                         match fs.read(&req, header.nodeid, arg.offset, arg.size) {
                             Ok(data) => reply_data(&mut ring, fuse_fd, header.unique, &data),
@@ -152,7 +165,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_READDIR => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
                         match fs.readdir(&req, header.nodeid, arg.offset) {
                             Ok(data) => reply_data(&mut ring, fuse_fd, header.unique, &data),
@@ -163,7 +176,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         reply_error(&mut ring , fuse_fd , header.unique, libc::ENOSYS)
                     },
                     FUSE_UNLINK => {
-                        let ptr = unsafe{ buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe{ request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
                         match fs.unlink(&req, header.nodeid, name.to_bytes()) {
                             Ok(()) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
@@ -171,7 +184,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_RMDIR => {
-                        let ptr = unsafe{ buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe{ request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
                         match fs.rmdir(&req, header.nodeid, name.to_bytes()) {
                             Ok(()) => reply_ok(&mut ring, fuse_fd, header.unique, &()),
@@ -179,7 +192,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_RENAME => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseRenameIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseRenameIn>()) };
                         let oldname = unsafe { CStr::from_ptr(name_ptr as *const i8) };
@@ -193,7 +206,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_SYMLINK => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>())};
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>())};
                         let name = unsafe { CStr::from_ptr(ptr as *const i8) };
                         let target_ptr = unsafe { ptr.add(name.to_bytes_with_nul().len())};
                         let target = unsafe { CStr::from_ptr(target_ptr as *const i8) };
@@ -209,7 +222,7 @@ pub fn run_uring_loop<F : FileSystem>(fuse_fd: RawFd , fs: F) -> io::Result<()> 
                         }
                     },
                     FUSE_LINK => {
-                        let ptr = unsafe { buf.as_ptr().add(mem::size_of::<FuseInHeader>()) };
+                        let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseLinkIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseLinkIn>()) };
                         let name = unsafe { CStr::from_ptr(name_ptr as *const i8) };
