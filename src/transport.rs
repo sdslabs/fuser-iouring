@@ -1,10 +1,12 @@
 use crate::ll::fuse_abi::*;
 use io_uring::{IoUring, opcode, types};
+use libc::recv;
 use std::io;
 use std::mem;
 use std::os::unix::io::RawFd;
 use std::slice;
 use std::ffi::CStr;
+use std::sync::Arc;
 use crate::{FileSystem, Request};
 use tracing::{info, debug, error, warn};
 
@@ -21,6 +23,8 @@ where F: FileSystem + Send + Sync + 'static {
 
     let mut ring = IoUring::new(8)?;
     let mut buf = vec![0u8; FUSE_BUFFER_SIZE];
+    let fs_arc = Arc::new(fs);
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
 
     let read_op = opcode::Read::new(types::Fd(fuse_fd), buf.as_mut_ptr(), buf.len() as _)
         .offset(-1i64 as u64)
@@ -62,23 +66,84 @@ where F: FileSystem + Send + Sync + 'static {
                 };
                 
                 // CREATE THE REQUEST CONTEXT
-                    let req = Request {
-                        unique: header.unique,
-                        uid: header.uid,
-                        gid: header.gid,
-                        pid: header.pid,
-                    };
+                let req = Request {
+                    unique: header.unique,
+                    uid: header.uid,
+                    gid: header.gid,
+                    pid: header.pid,
+                };
 
                 let res = match header.opcode {
                     FUSE_INIT => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseInitIn) };
-                        match fs.init(&req, &arg) {
-                            Ok(entry) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
-                            Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        let req = req.clone();
+
+                        let unique = header.unique;
+                        let tx = tx.clone();
+                        let _handle = tokio::task::spawn_blocking(move || {
+                            let result = fs.init(&req, &arg);
+                            let reply_result : Result<Vec<u8>, i32> = result.map(|val| {
+                                unsafe {
+                                    slice::from_raw_parts(
+                                        &val as *const FuseInitOut as *const u8,
+                                        mem::size_of::<FuseInitOut>(),
+                                    ).to_vec()
+                                }
+                            });
+
+                            let reply = FuseChannelReply {
+                                unique : unique,
+                                result : reply_result,
+                            };
+
+                            if tx.blocking_send(reply).is_err() {
+                                error!("Reactor dropped the reply channel");
+                            }
+                        });
+
+                        let received = runtime.block_on(rx.recv());
+
+                        match received {
+                            Some(reply) => {
+                                info!("Received reply for unique={}", reply.unique);
+
+                                match reply.result {
+                                    Ok(data) => {
+                                        info!("FUSE_INIT succeeded; payload size={} bytes", data.len());
+
+                                        if let Err(e) = reply_data(&mut ring, fuse_fd, reply.unique, &data) {
+                                            error!("Failed to send FUSE_INIT reply: {}", e);
+                                        }
+                                    }
+                                    Err(errno) => {
+                                        error!("FUSE_INIT failed with errno={}", errno);
+
+                                        if let Err(e) = reply_error( &mut ring, fuse_fd, reply.unique, errno) {
+                                            error!("Failed to send FUSE_INIT error reply: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            None => {
+                                error!("Reply channel closed before a result was received");
+                            }
                         }
+
+
+                        // match task_result {
+                        //     Ok(Ok(entry)) => reply_ok(&mut ring, fuse_fd, header.unique, &entry),
+                        //     Ok(Err(e)) => reply_error(&mut ring, fuse_fd, header.unique, e),
+                        //     Err(e) => {
+                        //         error!("Tokio blocking task failed: {}", e);
+                        //         reply_error(&mut ring, fuse_fd, header.unique, libc::EIO)
+                        //     }
+                        // }
+                        Ok(())
                     },
                     FUSE_LOOKUP => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe { CStr::from_ptr(ptr as *const i8) };
                         match fs.lookup(&req, header.nodeid, name.to_bytes()) {
@@ -87,12 +152,14 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_GETATTR => {
+                        let fs = Arc::clone(&fs_arc);
                         match fs.getattr(&req, header.nodeid) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_SETATTR => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseSetAttrIn) };
                         match fs.setattr(&req, header.nodeid, &arg) {
@@ -101,6 +168,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_ACCESS => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseAccessIn) };
                         match fs.access(&req, header.nodeid, arg.mask) {
@@ -109,18 +177,21 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_OPEN => {
+                        let fs = Arc::clone(&fs_arc);
                         match fs.open(&req, header.nodeid, 0) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_OPENDIR => {
+                        let fs = Arc::clone(&fs_arc);
                         match fs.opendir(&req, header.nodeid, 0) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_MKDIR => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseMkdirIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseMkdirIn>()) };
@@ -131,6 +202,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_CREATE => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseCreateIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseCreateIn>()) };
@@ -144,6 +216,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_WRITE => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseWriteIn) };
                         let data_ptr = unsafe { ptr.add(mem::size_of::<FuseWriteIn>()) };
@@ -157,6 +230,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_READ => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
                         match fs.read(&req, header.nodeid, arg.offset, arg.size) {
@@ -165,6 +239,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_READDIR => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseReadIn) };
                         match fs.readdir(&req, header.nodeid, arg.offset) {
@@ -173,9 +248,11 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_READDIRPLUS => {
+                        let fs = Arc::clone(&fs_arc);
                         reply_error(&mut ring , fuse_fd , header.unique, libc::ENOSYS)
                     },
                     FUSE_UNLINK => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe{ request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
                         match fs.unlink(&req, header.nodeid, name.to_bytes()) {
@@ -184,6 +261,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_RMDIR => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe{ request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let name = unsafe{ CStr::from_ptr(ptr as *const i8) };
                         match fs.rmdir(&req, header.nodeid, name.to_bytes()) {
@@ -192,6 +270,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_RENAME => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseRenameIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseRenameIn>()) };
@@ -206,6 +285,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_SYMLINK => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>())};
                         let name = unsafe { CStr::from_ptr(ptr as *const i8) };
                         let target_ptr = unsafe { ptr.add(name.to_bytes_with_nul().len())};
@@ -216,12 +296,14 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_READLINK => {
+                        let fs = Arc::clone(&fs_arc);
                         match fs.readlink(&req, header.nodeid) {
                             Ok(target) => reply_data(&mut ring, fuse_fd, header.unique, &target),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
                         }
                     },
                     FUSE_LINK => {
+                        let fs = Arc::clone(&fs_arc);
                         let ptr = unsafe { request_bytes.as_ptr().add(mem::size_of::<FuseInHeader>()) };
                         let arg = unsafe { *(ptr as *const FuseLinkIn) };
                         let name_ptr = unsafe { ptr.add(mem::size_of::<FuseLinkIn>()) };
@@ -232,6 +314,7 @@ where F: FileSystem + Send + Sync + 'static {
                         }
                     },
                     FUSE_STATFS => {
+                        let fs = Arc::clone(&fs_arc);
                         match fs.statfs(&req, header.nodeid) {
                             Ok(out) => reply_ok(&mut ring, fuse_fd, header.unique, &out),
                             Err(e) => reply_error(&mut ring, fuse_fd, header.unique, e),
