@@ -21,6 +21,12 @@ Libraries such as [`fuser`](https://github.com/cberner/fuser) talk to the kernel
 
 ## Quick start
 
+```sh
+cargo add fuser-iouring libc
+```
+
+or add it to `Cargo.toml` manually:
+
 ```toml
 [dependencies]
 fuser-iouring = "0.1"
