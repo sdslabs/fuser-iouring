@@ -59,7 +59,7 @@ pub trait FileSystem {
 
 pub fn mount<F, P>(fs: F, mountpoint: P, options: &[MountOption]) -> io::Result<()>
 where
-    F: FileSystem + Send + 'static,
+    F: FileSystem + Send + Sync + 'static,
     P: AsRef<Path>,
 {
     let session = mount::Session::new(mountpoint.as_ref(), options)?;

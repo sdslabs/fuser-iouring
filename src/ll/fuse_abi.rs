@@ -290,3 +290,8 @@ pub struct FuseAccessIn {
     pub mask: u32,
     pub padding: u32,
 }
+
+pub struct FuseChannelReply {
+    pub unique: u64,
+    pub result: Result<Vec<u8>, i32>,
+}
