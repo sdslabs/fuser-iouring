@@ -1,6 +1,6 @@
 [package]
 name = "fuser-iouring"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.85"
 description = "A FUSE filesystem library for Rust that drives /dev/fuse through io_uring"

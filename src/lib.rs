@@ -9,6 +9,7 @@ use std::path::Path;
 use crate::ll::fuse_abi::*;
 
 pub use mount::MountOption;
+pub use libc;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Request {
